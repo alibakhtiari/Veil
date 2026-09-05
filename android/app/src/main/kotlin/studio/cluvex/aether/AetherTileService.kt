@@ -23,7 +23,7 @@ class AetherTileService : TileService() {
 
     override fun onClick() {
         super.onClick()
-        val active = qsTile.state == Tile.STATE_ACTIVE
+        val active = VpnTunnelService.isRunning
         val intent = Intent(this, VpnTunnelService::class.java).apply {
             action = if (active) VpnTunnelService.ACTION_STOP else VpnTunnelService.ACTION_START
         }
@@ -33,13 +33,19 @@ class AetherTileService : TileService() {
             @Suppress("DEPRECATION")
             startService(intent)
         }
-        qsTile.state = if (active) Tile.STATE_INACTIVE else Tile.STATE_ACTIVE
-        qsTile.updateTile()
+        updateTileState(!active)
     }
 
     override fun onStartListening() {
         super.onStartListening()
-        qsTile.icon = Icon.createWithResource(this, android.R.drawable.ic_lock_lock)
-        qsTile.updateTile()
+        updateTileState(VpnTunnelService.isRunning)
+    }
+
+    private fun updateTileState(active: Boolean) {
+        val tile = qsTile ?: return
+        tile.state = if (active) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+        tile.label = "Veil"
+        tile.icon = Icon.createWithResource(this, android.R.drawable.ic_lock_lock)
+        tile.updateTile()
     }
 }
