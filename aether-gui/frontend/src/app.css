@@ -1,0 +1,79 @@
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #1a1a1a;
+  --accent: #4f7cff;
+  --danger: #d33f3f;
+  --muted: #8a8a8a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141417;
+    --fg: #f0f0f0;
+  }
+}
+
+html[dir="rtl"] body {
+  text-align: right;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, "Segoe UI", Tahoma, sans-serif;
+}
+
+main {
+  max-width: 440px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+button {
+  font-size: 1rem;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--muted);
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.card {
+  border: 1px solid var(--muted);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 12px 0;
+}
+
+pre.logs {
+  max-height: 220px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  font-size: 0.8rem;
+}
+
+.mode-selector {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.mode-selector button {
+  flex: 1;
+  background: transparent;
+  color: var(--fg);
+}
+
+.mode-selector button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}

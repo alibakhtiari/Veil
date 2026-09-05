@@ -1,0 +1,40 @@
+[package]
+name = "aether-gui"
+version = "0.1.0"
+edition = "2021"
+description = "Desktop GUI application for Veil"
+license = "MIT"
+
+[[bin]]
+name = "aether-gui"
+path = "src/main.rs"
+
+[lib]
+name = "aether_gui"
+path = "src/lib.rs"
+
+[dependencies]
+aether = { path = "../../aether" }
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-single-instance = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-updater = "2"
+tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "sync"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+tun = { version = "0.7", optional = true }
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+# Windows-only: live system-proxy refresh via WinInet (proxy.rs). Never
+# built on other hosts; the registry write remains the durable effect.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Networking_WinInet"] }
+
+[features]
+default = []
+tun = ["dep:tun"]
+
+

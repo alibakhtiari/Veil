@@ -1,0 +1,16 @@
+{
+  "$schema": "https://schema.tauri.app/config/2/capability",
+  "identifier": "default",
+  "description": "Least-privilege access for the Aether main window.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-minimize",
+    "core:event:allow-emit",
+    "core:event:allow-listen",
+    "updater:allow-check",
+    "updater:allow-download-and-install"
+  ]
+}
