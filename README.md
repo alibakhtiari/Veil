@@ -1,185 +1,63 @@
-# Aether
+# Veil
 
-![Aether](Docs/Aether.png)
+### اینترنت آزاد برای همه :))
+**[راهنمای فارسی](README.fa.md)** · **[Roadmap & Tasks](TODO.md)**
 
-### اینترنت آزاد برای همه:))
-**[راهنمای فارسی](README.fa.md)** · **[English Guide](Docs/DOCS.en.md)** · **[راهنمای کامل فارسی](Docs/DOCS.fa.md)**
+Veil is an encrypted stealth tunnel client designed for heavily restricted networks. It automatically discovers reachable routes, establishes an obfuscated tunnel, and exposes a local SOCKS5 proxy or provides full device VPN routing through modern desktop and mobile graphical applications.
 
-Telegram: https://t.me/CluvexStudio
-
-Aether is a censorship circumvention client designed for heavily restricted networks. It automatically discovers reachable routes, establishes an encrypted tunnel, and exposes a local SOCKS5 proxy for your applications.
-
-Unlike traditional VPN clients, Aether is built for environments where Deep Packet Inspection (DPI), protocol fingerprinting, UDP throttling, and endpoint blocking are common.
+Unlike traditional VPN clients, Veil is engineered for environments where Deep Packet Inspection (DPI), TLS/SNI filtering, protocol fingerprinting, UDP throttling, and endpoint blocking are prevalent.
 
 ## Features
 
-- Automatic endpoint discovery, with end-to-end data-plane validation so a gateway is only trusted once it actually passes traffic, not just once it answers the handshake
-- MASQUE (HTTP/3 & HTTP/2), with optional TLS ClientHello fragmentation on HTTP/2
-- WireGuard support
-- Nested WireGuard mode (`gool`), with both hops discovered by the scan or given by hand
-- Traffic obfuscation
-- Routing rules by domain, address, or port, matched from the TLS server name so they keep working behind a tun front end
-- Upstream proxy support, so Aether can dial out through another VPN or proxy already running on the machine
-- Automatic reconnection, and quick-reconnect to your last known-good gateway to skip rescanning
-- Local SOCKS5 proxy
-- Command-line flags, environment variables, or interactive prompts — your choice
-- Linux, Windows, macOS and Android (Termux)
+- **Modern Graphical Clients:** Dedicated Desktop GUI (Windows, macOS, Linux) with system proxy and TUN routing, plus a native Android app (`VpnService`).
+- **Data-Plane Validation:** Automatic endpoint discovery with end-to-end data-plane validation — gateways are only accepted once they pass real traffic.
+- **MASQUE (HTTP/3 & HTTP/2):** Obfuscated encapsulation with optional TLS ClientHello fragmentation on HTTP/2.
+- **WireGuard & Nested WireGuard (`gool`):** Double-hop WireGuard routing with automated hop discovery.
+- **Advanced Obfuscation:** Configurable noise profiles to defeat DPI and handshake fingerprinting.
+- **Flexible Routing Rules (Split Tunneling):** Bypass or block traffic by domain, CIDR, or port, extracted from TLS SNI to work transparently behind TUN mode.
+- **Upstream Proxy Chaining:** Route tunnel egress through existing proxies or VPNs.
+- **Zero Trust Support:** Direct Cloudflare Zero Trust team enrollment with one-time codes and service tokens.
 
 ## Download
 
-Prebuilt binaries are available on the Releases page for:
+Prebuilt installers and applications are available on the Releases page:
 
-- Linux
-- Windows
-- macOS
-- Android (Termux)
+- **Windows:** `.msi` installer, `.exe` setup
+- **macOS:** `.dmg` (Universal Binary for Apple Silicon & Intel)
+- **Linux:** `.AppImage`, `.deb`, `.rpm`
+- **Android:** `.apk` (Native Android App with `VpnService`), `.aab`
 
-### Termux (Android) — one-line install
+## Desktop & Mobile GUI
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/CluvexStudio/aether/main/aether.sh -o aether.sh && chmod +x aether.sh && ./aether.sh install
-```
+- **Desktop:** Run `veil-gui` for system tray integration, one-click connect, live throughput stats, and traffic mode switching (Proxy Only / System Proxy / TUN VPN).
+- **Android:** Launch the Veil app, grant the standard VPN permission, and tap Connect.
 
-This detects your device architecture, downloads the matching release, verifies its checksum, and installs `aether` into `$PREFIX/bin`. Run it afterwards with:
-
-```bash
-aether
-```
-
-To update later, run `./aether.sh update`. To remove it, run `./aether.sh uninstall`.
-
-## Build
+## Building from Source
 
 ### Requirements
-
 - Rust 1.91 or newer
-- C/C++ compiler
-- CMake
+- C/C++ compiler and CMake
+- Node.js 20+ (for building the Desktop GUI frontend)
 
-The `quiche` repository must be placed alongside `aether`:
-
-```text
-<repo>/
-  aether/
-  quiche/
-```
-
-Build:
+Ensure `quiche` is present in the repository tree:
 
 ```bash
-cargo build --release
+# Run core test suite
+cargo test --manifest-path aether/Cargo.toml --lib
+
+# Build the desktop GUI application
+cargo tauri build --manifest-path aether-gui/src-tauri/Cargo.toml
 ```
 
-Binary:
+## Roadmap & Remaining Tasks
 
-```text
-target/release/aether
-```
+- [TODO.md](TODO.md) — Pending tasks, release recipes, and platform roadmap
 
-## Docker
+## Credits & License
 
-You can run Aether in an isolated environment using Docker. The official image is available on GitHub Container Registry (GHCR).
+Veil is an independent personal fork based on the **Aether** engine (Copyright © 2024–2025 CluvexStudio / Aether Contributors), licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
+- MASQUE protocol implementation is built on Cloudflare's **Quiche** library.
+- Desktop application is built with **Tauri v2** and **Svelte 5**.
+- Android client is built with **Kotlin** and Jetpack Compose.
 
-> **The SOCKS5 proxy has no authentication.** Anyone who can reach the port can use your tunnel. Every command below publishes the port to `127.0.0.1` only, so it stays reachable from your own machine and nothing else. Do not replace it with `-p 1819:1819`, because that form listens on every interface of the host and turns the proxy into an open relay. If you genuinely need to serve other machines, put an authenticated front end in front of it and firewall the port.
-
-The `-v aether-data:/data` volume keeps the generated WARP identity between runs. Without it every start registers a brand new device, and Cloudflare begins rate limiting your address.
-
-Pull and run the pre-built image (interactive mode is required for initial setup):
-
-```bash
-docker run -it -p 127.0.0.1:1819:1819 -v aether-data:/data ghcr.io/cluvexstudio/aether:latest
-```
-
-You can also bypass prompts by providing environment variables:
-
-```bash
-docker run -it -p 127.0.0.1:1819:1819 -v aether-data:/data \
-  -e AETHER_PROTOCOL=masque \
-  -e AETHER_SCAN=balanced \
-  ghcr.io/cluvexstudio/aether:latest
-```
-
-If you prefer to build the image manually from source:
-
-```bash
-docker build -t aether .
-docker run -it -p 127.0.0.1:1819:1819 -v aether-data:/data aether
-```
-
-## Usage
-
-Run with no arguments and answer the prompts:
-
-```bash
-./target/release/aether
-```
-
-Or skip the prompts with flags:
-
-```bash
-./target/release/aether --masque -4 --scan turbo --noize firewall
-```
-
-On Windows, double-click `run-aether.bat` (included in the release zip) instead — it opens a terminal, runs `aether.exe`, and keeps the window open afterwards so you can read any errors.
-
-Every prompt has a flag and an environment variable equivalent. Run `aether help` (or `--help`) for the full list — every flag, every variable, and what each one does — or see the guides linked below.
-
-After startup, a SOCKS5 proxy will be available at:
-
-```
-127.0.0.1:1819
-```
-
-Example:
-
-```bash
-curl -x socks5h://127.0.0.1:1819 https://www.cloudflare.com/cdn-cgi/trace
-```
-
-## Supported Protocols
-
-### MASQUE (Recommended)
-
-Encapsulates traffic over HTTP/3 (QUIC) or HTTP/2 (TLS), making it resemble ordinary HTTPS traffic.
-
-### WireGuard
-
-Fast and lightweight transport for networks with less aggressive inspection.
-
-### Nested WireGuard (`gool`)
-
-A WireGuard tunnel running inside another WireGuard tunnel, providing an additional encryption layer.
-
-Its two hops are found by the scan by default. If you already know addresses that work on your network, name them instead with `--wiw-outer 162.159.192.1:2408 --wiw-inner 188.114.96.1:2408`, or both at once with `--wiw-peers 162.159.192.1:2408,188.114.96.1:2408`. The port is required — which port gets through is what differs between networks, so none is assumed. Give only one and the scan finds the other.
-
-## Documentation
-
-Detailed documentation is available in:
-
-- [Docs/GUIDE.en.md](Docs/GUIDE.en.md) — English guide
-- [Docs/GUIDE.fa.md](Docs/GUIDE.fa.md) — راهنمای فارسی
-
-## Credits
-
-Developed by **CluvexStudio**. :))
-
-MASQUE support is built on top of Cloudflare's **Quiche** library.
-
-
-## Contributing
-
-> **Experienced network developers and protocol engineers are welcome to contribute.**
-
-> **Please keep the codebase clean, maintainable, and well-engineered. Low-quality or vibe-coded contributions will not be accepted.**
-
-## Donate
-
-If Aether has been useful to you, consider supporting its development:
-
-- **TRX (Tron):** `TRxVSHcoADZnBfztFmFb2TQopusAwWYEVR`
-- **BTC:** `bc1qnjnvzsa5avgj7n0uy383cv5zdxfjnvvp257egm`
-- **TON:** `UQAH75bXaaRUhZMwiF0ZujOXFDDmvLSPASKoOsWF0HNasiaM`
-
-## License
-
-See the LICENSE file for licensing information.
+See the `LICENSE` file for details.
