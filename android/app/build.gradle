@@ -1,0 +1,67 @@
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
+}
+
+android {
+    namespace = "studio.cluvex.aether"
+    compileSdk = 34
+
+    defaultConfig {
+        applicationId = "studio.cluvex.aether"
+        minSdk = 26
+        targetSdk = 34
+        // Tracks the core: 1.9.0 -> 10900xx. Bump with releases.
+        versionCode = 1090001
+        versionName = "1.9.0"
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+        debug {
+            applicationIdSuffix = ".debug"
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
+    ndkVersion = "26.3.11579264"
+
+    // Prebuilt libaether.so per ABI (see NEXT-STEPS.md §A).
+    sourceSets {
+        getByName("main") {
+            jniLibs.srcDirs("src/main/jniLibs")
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+    buildFeatures {
+        compose = true
+    }
+}
+
+dependencies {
+    implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.activity:activity-compose:1.9.2")
+    implementation("androidx.compose.material3:material3:1.2.1")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
+}

@@ -1,0 +1,7 @@
+# Android / Gradle build outputs — never commit.
+build/
+.gradle/
+local.properties
+*.iml
+# app/src/main/jniLibs/ holds the CI-built libaether.so per ABI (see Docs/GUI/NEXT-STEPS.md §A); binaries are generated, not committed.
+app/src/main/jniLibs/
