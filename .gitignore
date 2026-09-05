@@ -1,5 +1,7 @@
 target/
 **/target/
+**/node_modules/
+aether-gui/frontend/dist/
 *.zip
 *.tar.gz
 .DS_Store

@@ -1,0 +1,67 @@
+# Continuous verification: unit tests + frontend checks.
+#
+# NOTE (GUI_PLAN.md §2.3): no xvfb/X11 is needed — every test in this
+# repo is headless by design (pure builders, ring buffers, loopback
+# sockets, pre-cancelled tokens). The Tauri window only exists in
+# main(), which tests never execute. If a future test opens a window,
+# gate it behind xvfb at that point, not preemptively.
+#
+# Tag releases are handled by release.yml; this workflow guards main.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Tests (core + GUI backend + frontend)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install native build dependencies
+        # boringssl/quiche (core) + WebKitGTK (the Tauri bin target links
+        # it even for `cargo test`, same packages as the gui-desktop job).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake ninja-build clang \
+            golang-go nasm perl pkg-config \
+            libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf
+
+      - name: Core library tests
+        working-directory: aether
+        run: cargo test --lib
+
+      - name: Desktop GUI backend tests (default + tun feature)
+        working-directory: aether-gui/src-tauri
+        run: |
+          cargo test
+          cargo test --features tun
+
+      - name: Clippy (GUI backend, warnings deny the job)
+        working-directory: aether-gui/src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: aether-gui/frontend/package-lock.json
+
+      - name: Frontend typecheck and build
+        working-directory: aether-gui/frontend
+        run: |
+          npm ci
+          npm run check
+          npm run build
