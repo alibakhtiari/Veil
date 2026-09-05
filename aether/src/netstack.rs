@@ -337,8 +337,8 @@ fn strip_cidr(s: &str) -> &str {
 
 fn to_ip_address(ip: IpAddr) -> IpAddress {
     match ip {
-        IpAddr::V4(v4) => IpAddress::Ipv4(Ipv4Address::from(v4)),
-        IpAddr::V6(v6) => IpAddress::Ipv6(Ipv6Address::from(v6)),
+        IpAddr::V4(v4) => IpAddress::Ipv4(v4),
+        IpAddr::V6(v6) => IpAddress::Ipv6(v6),
     }
 }
 
@@ -394,16 +394,10 @@ fn apply_addrs(
     iface.update_ip_addrs(|addrs| {
         addrs.clear();
         if let Some((ip, p)) = v4 {
-            let _ = addrs.push(IpCidr::new(
-                IpAddress::Ipv4(Ipv4Address::from(ip)),
-                routable_prefix_v4(p),
-            ));
+            let _ = addrs.push(IpCidr::new(IpAddress::Ipv4(ip), routable_prefix_v4(p)));
         }
         if let Some((ip, p)) = v6 {
-            let _ = addrs.push(IpCidr::new(
-                IpAddress::Ipv6(Ipv6Address::from(ip)),
-                routable_prefix_v6(p),
-            ));
+            let _ = addrs.push(IpCidr::new(IpAddress::Ipv6(ip), routable_prefix_v6(p)));
         }
     });
 
@@ -424,8 +418,8 @@ fn apply_addrs(
 
 fn endpoint_to_socketaddr(ep: IpEndpoint) -> SocketAddr {
     let ip = match ep.addr {
-        IpAddress::Ipv4(v4) => IpAddr::V4(v4.into()),
-        IpAddress::Ipv6(v6) => IpAddr::V6(v6.into()),
+        IpAddress::Ipv4(v4) => IpAddr::V4(v4),
+        IpAddress::Ipv6(v6) => IpAddr::V6(v6),
     };
     SocketAddr::new(ip, ep.port)
 }

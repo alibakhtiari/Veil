@@ -382,16 +382,16 @@ fn extract_api_error(body: &str) -> Option<String> {
     let errors = value.get("errors")?.as_array()?;
     let parts: Vec<String> = errors
         .iter()
-        .filter_map(|entry| {
+        .map(|entry| {
             let message = entry
                 .get("message")
                 .and_then(|value| value.as_str())
                 .unwrap_or("unknown");
             let code = entry.get("code").and_then(|value| value.as_i64());
-            Some(match code {
+            match code {
                 Some(code) => format!("{message} (code {code})"),
                 None => message.to_string(),
-            })
+            }
         })
         .collect();
 
