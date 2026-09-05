@@ -16,7 +16,8 @@
 
 cmake_minimum_required(VERSION 3.22.1)
 
-project("aether_jni")
+project("aether_jni" C ASM)
+enable_language(ASM)
 
 # Prebuilt core, one .so per ABI under jniLibs.
 add_library(aether SHARED IMPORTED)

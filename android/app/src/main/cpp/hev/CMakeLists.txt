@@ -26,7 +26,8 @@
 
 cmake_minimum_required(VERSION 3.22.1)
 
-project("hev_vendor")
+project("hev_vendor" C ASM)
+enable_language(ASM)
 
 if(ANDROID_ABI STREQUAL "armeabi-v7a")
     add_compile_options(-mfpu=neon)
@@ -45,12 +46,14 @@ target_compile_definitions(yaml PUBLIC
     "YAML_VERSION_STRING=\"0.2.5.2\"")
 
 # --- hev-task-system (mirrors third-part/hev-task-system/Android.mk) ---
-file(GLOB_RECURSE TASK_SYSTEM_SRCS
-    "${CMAKE_CURRENT_SOURCE_DIR}/third-part/hev-task-system/src/*.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/third-part/hev-task-system/src/kern/task/hev-task-execute.S")
-add_library(hev-task-system STATIC ${TASK_SYSTEM_SRCS})
+file(GLOB_RECURSE TASK_SYSTEM_C_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/third-part/hev-task-system/src/*.c")
+set(TASK_SYSTEM_ASM_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/third-part/hev-task-system/src/kern/task/hev-task-execute.S")
+set_source_files_properties(${TASK_SYSTEM_ASM_SRCS} PROPERTIES LANGUAGE ASM)
+add_library(hev-task-system STATIC ${TASK_SYSTEM_C_SRCS} ${TASK_SYSTEM_ASM_SRCS})
 target_include_directories(hev-task-system PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/third-part/hev-task-system/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}/third-part/hev-task-system/src/arch/arm"
+    "${CMAKE_CURRENT_SOURCE_DIR}/third-part/hev-task-system/src/arch/x86"
     "${CMAKE_CURRENT_SOURCE_DIR}/third-part/hev-task-system/include")
 target_compile_definitions(hev-task-system PUBLIC
     ENABLE_STACK_OVERFLOW_DETECTION
