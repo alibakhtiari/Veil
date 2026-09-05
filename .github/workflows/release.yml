@@ -199,13 +199,49 @@ jobs:
         run: gradle assembleRelease bundleRelease
 
       - name: Sign Android release artifacts
-        uses: r0adkll/sign-android-release@v1
-        with:
-          releaseDirectory: android/app/build/outputs/apk/release
-          signingKey: ${{ secrets.ANDROID_KEYSTORE_BASE64 || secrets.ANDROID_SIGNING_KEY }}
-          keyStorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          alias: ${{ secrets.ANDROID_KEY_ALIAS }}
-          keyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "Decoding keystore..."
+          echo "$KEYSTORE_BASE64" | base64 -d > /tmp/release.keystore
+
+          BUILD_TOOLS_DIR=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          echo "Using Android build-tools from $BUILD_TOOLS_DIR"
+          ZIPALIGN="$BUILD_TOOLS_DIR/zipalign"
+          APKSIGNER="$BUILD_TOOLS_DIR/apksigner"
+
+          for apk in android/app/build/outputs/apk/release/*.apk; do
+            if [ -f "$apk" ]; then
+              echo "Zipaligning and signing $apk..."
+              "$ZIPALIGN" -f -v -p 4 "$apk" "${apk%.apk}-aligned.apk"
+              "$APKSIGNER" sign \
+                --ks /tmp/release.keystore \
+                --ks-key-alias "$KEY_ALIAS" \
+                --ks-pass "pass:$KEYSTORE_PASSWORD" \
+                --key-pass "pass:${KEY_PASSWORD:-$KEYSTORE_PASSWORD}" \
+                --out "$apk" \
+                "${apk%.apk}-aligned.apk"
+              rm -f "${apk%.apk}-aligned.apk"
+              "$APKSIGNER" verify "$apk"
+            fi
+          done
+
+          for aab in android/app/build/outputs/bundle/release/*.aab; do
+            if [ -f "$aab" ]; then
+              echo "Signing AAB $aab..."
+              jarsigner -keystore /tmp/release.keystore \
+                -storepass "$KEYSTORE_PASSWORD" \
+                ${KEY_PASSWORD:+-keypass "$KEY_PASSWORD"} \
+                "$aab" "$KEY_ALIAS"
+            fi
+          done
+
+          rm -f /tmp/release.keystore
+          echo "Android signing completed successfully."
 
       - name: Compute checksums
         working-directory: android/app/build/outputs
