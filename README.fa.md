@@ -24,7 +24,7 @@
 فایل‌های نصبی و پکیج‌های آماده از صفحه Releases قابل دانلود هستند:
 
 - **Windows:** فایل‌های نصبی `.msi` و `.exe` (معماری‌های x86_64 و ARM64)
-- **macOS:** فایل‌های `.dmg` (نسخه جامع Universal Binary، نسخه Apple Silicon ARM64، و نسخه Intel/AMD x86_64)
+- **macOS:** فایل‌های `.dmg` (نسخه Apple Silicon ARM64 و نسخه Intel/AMD x86_64)
 - **Linux:** بسته‌های `.AppImage`، `.deb` و `.rpm` (معماری‌های x86_64 و ARM64)
 - **Android:** اپلیکیشن بومی اندروید با پشتیبانی از VPN دستگاه (`.apk` و `.aab`)
 

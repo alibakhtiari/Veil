@@ -23,7 +23,7 @@ Unlike traditional VPN clients, Veil is engineered for environments where Deep P
 Prebuilt installers and applications are available on the Releases page:
 
 - **Windows:** `.msi` installer, `.exe` setup (x86_64 & ARM64)
-- **macOS:** `.dmg` (Universal Binary, Apple Silicon ARM64, and Intel/AMD x86_64)
+- **macOS:** `.dmg` (Apple Silicon ARM64 and Intel/AMD x86_64)
 - **Linux:** `.AppImage`, `.deb`, `.rpm` (x86_64 & ARM64)
 - **Android:** `.apk` (Native Android App with `VpnService`), `.aab`
 

@@ -43,10 +43,6 @@ jobs:
             platform: macos
             arch: arm64
             target: aarch64-apple-darwin
-          - os: macos-latest
-            platform: macos
-            arch: universal
-            target: universal-apple-darwin
           - os: ubuntu-22.04
             platform: linux
             arch: x86_64
@@ -69,7 +65,12 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target == 'universal-apple-darwin' && 'aarch64-apple-darwin,x86_64-apple-darwin' || matrix.target }}
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: aether-gui/src-tauri -> target
 
       - name: Install Linux GUI dependencies
         if: runner.os == 'Linux'
@@ -148,6 +149,11 @@ jobs:
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
 
+      - name: Cache Rust dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: aether -> target
+
       - name: Install native build dependencies
         run: |
           sudo apt-get update
@@ -155,7 +161,15 @@ jobs:
             build-essential cmake ninja-build clang \
             golang-go nasm perl pkg-config
 
+      - name: Cache cargo-ndk
+        uses: actions/cache@v4
+        id: cache-cargo-ndk
+        with:
+          path: ~/.cargo/bin/cargo-ndk
+          key: ${{ runner.os }}-cargo-ndk-r26d
+
       - name: Install cargo-ndk
+        if: steps.cache-cargo-ndk.outputs.cache-hit != 'true'
         run: cargo install cargo-ndk --locked
 
       - name: Compile libaether.so for Android ABIs
