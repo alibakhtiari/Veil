@@ -7,24 +7,24 @@ This document tracks all strictly **pending tasks**, **release recipes**, and **
 ## 1. Desktop GUI (`aether-gui`)
 
 ### 1.1 Auto-Updater Activation
-- [ ] Generate Minisign key pair:
+- [x] Generate Minisign key pair:
   ```sh
   npm --prefix aether-gui/frontend run tauri signer generate
   ```
-- [ ] Add the generated public key to `"pubkey"` in `aether-gui/src-tauri/tauri.conf.json` and toggle `"active": true` before tagging production v1.0.0.
+- [x] Add the generated public key to `"pubkey"` in `aether-gui/src-tauri/tauri.conf.json` and toggle `"active": true` before tagging production v1.0.0.
 - [ ] Configure `TAURI_SIGNING_PRIVATE_KEY` (and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) in GitHub repository secrets.
 
 ### 1.2 Desktop Elevation UX
-- [ ] Verify and polish non-root elevation flow (`pkexec` on Linux, `osascript` on macOS) when virtual network adapters and routing tables are bound.
+- [x] Verify and polish non-root elevation flow (`pkexec` on Linux, `osascript` on macOS) when virtual network adapters and routing tables are bound.
 
 ---
 
 ## 2. Native Android App (`android/`)
 
 ### 2.1 UI Polish
-- [ ] Jetpack Compose polish: real-time upload/download speed metrics and bandwidth counters.
-- [ ] Quick Settings tile and Always-On VPN handler.
-- [ ] Battery optimization exemption prompt.
+- [x] Jetpack Compose polish: real-time upload/download speed metrics and bandwidth counters.
+- [x] Quick Settings tile and Always-On VPN handler.
+- [x] Battery optimization exemption prompt.
 
 ### 2.2 Release Keystore Secrets
 Configure in GitHub repository secrets for the `gui-android` CI release job:
@@ -46,14 +46,7 @@ Configure in GitHub repository secrets for the `gui-android` CI release job:
 
 ---
 
-## 3. iOS Native Client (`ios/`)
-
-- [ ] Link `libaether.a` static library via C ABI (`ios/Shared/aether.h`).
-- [ ] Connect Apple's `NEPacketTunnelProvider` to ingest packets and forward through the core engine.
-
----
-
-## 4. Release CI Secrets
+## 3. Release CI Secrets
 
 Configure in GitHub repository secrets for automated tagged releases in `.github/workflows/release.yml`:
 - [ ] `TAURI_SIGNING_PRIVATE_KEY` + `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
