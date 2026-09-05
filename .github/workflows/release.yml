@@ -31,10 +31,18 @@ jobs:
             platform: windows
             arch: x86_64
             target: x86_64-pc-windows-msvc
+          - os: windows-latest
+            platform: windows
+            arch: arm64
+            target: aarch64-pc-windows-msvc
           - os: macos-latest
             platform: macos
             arch: universal
             target: universal-apple-darwin
+          - os: macos-latest
+            platform: macos
+            arch: arm64
+            target: aarch64-apple-darwin
           - os: ubuntu-22.04
             platform: linux
             arch: x86_64
@@ -87,13 +95,13 @@ jobs:
           releaseName: "Veil ${{ inputs.tag_name || github.ref_name }}"
           releaseDraft: false
           prerelease: false
-          args: ${{ matrix.target == 'universal-apple-darwin' && '--target universal-apple-darwin' || '' }}
+          args: --target ${{ matrix.target }}
 
       - name: Gather and hash installers
         shell: bash
         run: |
           mkdir -p dist-gui
-          find aether-gui/target/release/bundle -type f \( -name "*.msi" -o -name "*.exe" -o -name "*.dmg" -o -name "*.tar.gz" -o -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) -exec cp {} dist-gui/ \; 2>/dev/null || true
+          find aether-gui/target -path "*/bundle/*" -type f \( -name "*.msi" -o -name "*.exe" -o -name "*.dmg" -o -name "*.tar.gz" -o -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) -exec cp {} dist-gui/ \; 2>/dev/null || true
           cd dist-gui
           for f in *; do
             if [ -f "$f" ]; then

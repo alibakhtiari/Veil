@@ -32,9 +32,9 @@ gh release create v1.0.0 --title "Veil v1.0.0" --generate-notes
 ---
 
 ### What GitHub Actions Builds & Publishes Automatically:
-- **Windows:** `.msi` and `.exe` installers.
-- **macOS:** Universal `.dmg` bundle (Apple Silicon + Intel).
-- **Linux:** `.AppImage`, `.deb`, and `.rpm` packages (x86_64 & arm64).
+- **Windows:** `.msi` and `.exe` installers (x86_64 & ARM64).
+- **macOS:** Universal `.dmg` bundle (Apple Silicon + Intel) and native Apple Silicon `.dmg` (ARM64).
+- **Linux:** `.AppImage`, `.deb`, and `.rpm` packages (x86_64 & ARM64).
 - **Android:** Signed `app-release.apk` and `app-release.aab`.
 - **Auto-Updater:** Minisign-signed `.tar.gz` and `.zip` update bundles (`latest.json`).
 - **Checksums:** Individual `.sha256` files and a unified `SHA256SUMS.txt`.
