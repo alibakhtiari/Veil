@@ -87,6 +87,7 @@ jobs:
           releaseName: "Veil ${{ inputs.tag_name || github.ref_name }}"
           releaseDraft: false
           prerelease: false
+          args: ${{ matrix.target == 'universal-apple-darwin' && '--target universal-apple-darwin' || '' }}
 
       - name: Gather and hash installers
         shell: bash
@@ -150,16 +151,17 @@ jobs:
         run: cargo install cargo-ndk --locked
 
       - name: Compile libaether.so for Android ABIs
+        working-directory: aether
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
           ANDROID_NDK_ROOT: ${{ steps.ndk.outputs.ndk-path }}
         run: |
-          mkdir -p android/app/src/main/jniLibs/arm64-v8a
-          mkdir -p android/app/src/main/jniLibs/armeabi-v7a
-          mkdir -p android/app/src/main/jniLibs/x86_64
-          cargo ndk -t arm64-v8a -o android/app/src/main/jniLibs/ build --manifest-path aether/Cargo.toml --release
-          cargo ndk -t armeabi-v7a -o android/app/src/main/jniLibs/ build --manifest-path aether/Cargo.toml --release
-          cargo ndk -t x86_64 -o android/app/src/main/jniLibs/ build --manifest-path aether/Cargo.toml --release
+          mkdir -p ../android/app/src/main/jniLibs/arm64-v8a
+          mkdir -p ../android/app/src/main/jniLibs/armeabi-v7a
+          mkdir -p ../android/app/src/main/jniLibs/x86_64
+          cargo ndk -t arm64-v8a -o ../android/app/src/main/jniLibs/ build --release
+          cargo ndk -t armeabi-v7a -o ../android/app/src/main/jniLibs/ build --release
+          cargo ndk -t x86_64 -o ../android/app/src/main/jniLibs/ build --release
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
