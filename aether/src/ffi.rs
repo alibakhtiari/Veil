@@ -224,6 +224,12 @@ struct ScanPayload {
     excluded: Option<Vec<String>>,
     #[serde(default)]
     ech: Option<bool>,
+    /// How many endpoints are wanted (gool scans use 2; see
+    /// `api::ScanRequest::wanted`). Ignored beyond storing: `api::scan`
+    /// returns the best endpoint and the GUI scans twice with
+    /// `excluded` carrying the other hop.
+    #[serde(default)]
+    wanted: Option<usize>,
 }
 
 #[derive(serde::Deserialize)]
@@ -241,6 +247,12 @@ struct TunnelPayload {
     keepalive: Option<u16>,
     #[serde(default)]
     ech: Option<bool>,
+    /// Gool hops. `outer`/`inner` win over `peer` when the transport is
+    /// gool; `peer` stays as the outer-hop alias for back-compat.
+    #[serde(default)]
+    outer: Option<String>,
+    #[serde(default)]
+    inner: Option<String>,
 }
 
 fn transport_of(raw: &Option<String>) -> api::Transport {
@@ -380,6 +392,9 @@ pub extern "C" fn aether_scan_start(identity: u64, payload: *const c_char) -> *m
         if let Some(mode) = &payload.mode {
             request.mode = mode.clone();
         }
+        if let Some(wanted) = payload.wanted {
+            request = request.with_wanted(wanted);
+        }
         if let Some(ip) = &payload.ip {
             request.ip = crate::prober::IpScan::parse(ip);
         }
@@ -412,7 +427,7 @@ pub extern "C" fn aether_scan_start(identity: u64, payload: *const c_char) -> *m
 }
 
 fn tunnel_spec_of(payload: &TunnelPayload) -> std::result::Result<api::TunnelSpec, String> {
-    let transport = transport_of(&payload.transport);
+    let mut transport = transport_of(&payload.transport);
     let mut spec = api::TunnelSpec::for_transport(transport);
 
     if let Some(profile) = &payload.profile {
@@ -427,7 +442,46 @@ fn tunnel_spec_of(payload: &TunnelPayload) -> std::result::Result<api::TunnelSpe
     if let Some(keepalive) = payload.keepalive {
         spec.keepalive = keepalive;
     }
+    // Gool hops: explicit outer/inner win; a gool `peer` holding
+    // "outer,inner" is also accepted (same grammar as --wiw-peers).
+    if payload.outer.is_some() || payload.inner.is_some() {
+        transport = api::Transport::WarpInWarp;
+        spec.transport = transport;
+    }
+    if matches!(transport, api::Transport::WarpInWarp) {
+        let outer_raw = payload.outer.as_deref().unwrap_or("");
+        let inner_raw = payload.inner.as_deref().unwrap_or("");
+        if !outer_raw.trim().is_empty() || !inner_raw.trim().is_empty() {
+            let (outer, inner) =
+                crate::gui::validate_wiw_pair(outer_raw, inner_raw).map_err(|e| e.to_string())?;
+            spec.outer = outer;
+            spec.inner = inner;
+        } else if payload.peer.contains(',') {
+            // "outer,inner" pair in the legacy peer field.
+            // validate_wiw_pair already rejects same-edge pairs, so no
+            // second check is needed here.
+            let parts: Vec<&str> = payload.peer.split(',').collect();
+            if parts.len() == 2 {
+                let (outer, inner) = crate::gui::validate_wiw_pair(parts[0], parts[1])
+                    .map_err(|e| e.to_string())?;
+                spec.outer = outer;
+                spec.inner = inner;
+            }
+        }
+    }
     Ok(spec)
+}
+
+/// The peer to dial: the gool outer hop when the spec carries one,
+/// otherwise the plain `peer` field. Validating the spec FIRST matters:
+/// a gool "outer,inner" pair in `peer` is not a single SocketAddr, so
+/// parsing `peer` up front would reject it before the pair handling
+/// above ever runs.
+fn dial_peer_of(payload: &TunnelPayload, spec: &api::TunnelSpec) -> std::result::Result<SocketAddr, String> {
+    match spec.outer {
+        Some(outer) => Ok(outer),
+        None => socket_of(&payload.peer, "the peer address"),
+    }
 }
 
 #[no_mangle]
@@ -435,8 +489,8 @@ pub extern "C" fn aether_verify_start(identity: u64, payload: *const c_char) -> 
     respond(|| {
         let payload: TunnelPayload = unsafe { read_json(payload) }?;
         let identity = identity_of(identity)?;
-        let peer = socket_of(&payload.peer, "the peer address")?;
         let spec = tunnel_spec_of(&payload)?;
+        let peer = dial_peer_of(&payload, &spec)?;
 
         spawn_job(move |cancel| async move {
             let reachable = api::verify_endpoint(&identity, peer, &spec, &cancel)
@@ -452,8 +506,8 @@ pub extern "C" fn aether_tunnel_start(identity: u64, payload: *const c_char) -> 
     respond(|| {
         let payload: TunnelPayload = unsafe { read_json(payload) }?;
         let identity = identity_of(identity)?;
-        let peer = socket_of(&payload.peer, "the peer address")?;
         let spec = tunnel_spec_of(&payload)?;
+        let peer = dial_peer_of(&payload, &spec)?;
         let want_ech = payload.ech.unwrap_or(false);
 
         spawn_job(move |cancel| async move {
@@ -596,6 +650,85 @@ pub extern "C" fn aether_team_token_clear() -> *mut c_char {
         let runtime = runtime().ok_or_else(|| "could not start the async runtime".to_string())?;
         runtime.block_on(api::team_forget_token());
         Ok(json!({"cleared": true}))
+    })
+}
+
+/// Drain buffered GUI events (see `crate::events`). Polled, never
+/// blocking: returns `{"events": [...]}` (possibly empty). Keeps the
+/// FFI "no callbacks" invariant — JNI/Swift poll this on a timer.
+#[no_mangle]
+pub extern "C" fn aether_events_poll(max: u64) -> *mut c_char {
+    respond(|| {
+        let events = crate::events::drain_events(max as usize);
+        Ok(json!({"events": events}))
+    })
+}
+
+/// Clear buffered GUI events without returning them (Reconnect flows).
+#[no_mangle]
+pub extern "C" fn aether_events_clear() -> *mut c_char {
+    respond(|| {
+        crate::events::clear();
+        Ok(json!({"cleared": true}))
+    })
+}
+
+/// Drain buffered log records. `level` is empty (all) or one of
+/// `error|warn|info|debug|trace`. Anything else is an error, so a
+/// typo'd filter surfaces instead of silently becoming `info`.
+/// `max == 0` means all buffered.
+#[no_mangle]
+pub extern "C" fn aether_log_poll(max: u64, level: *const c_char) -> *mut c_char {
+    respond(|| {
+        let min = match level.is_null() {
+            true => None,
+            false => {
+                let text = unsafe { read_str(level)? };
+                match text.trim().to_lowercase().as_str() {
+                    "" => None,
+                    "error" => Some(crate::guilog::GuiLogLevel::Error),
+                    "warn" | "warning" => Some(crate::guilog::GuiLogLevel::Warn),
+                    "info" => Some(crate::guilog::GuiLogLevel::Info),
+                    "debug" => Some(crate::guilog::GuiLogLevel::Debug),
+                    "trace" => Some(crate::guilog::GuiLogLevel::Trace),
+                    other => {
+                        return Err(format!(
+                            "bad log level '{other}': use error, warn, info, debug, or trace"
+                        ))
+                    }
+                }
+            }
+        };
+        // NOTE: `min` here is a minimum *verbosity*: asking for "warn"
+        // returns error+warn. The buffer keeps the rest for later polls
+        // at a more verbose level.
+        let logs = crate::guilog::drain_logs(max as usize, min);
+        Ok(json!({"logs": logs}))
+    })
+}
+
+/// Validate one GUI settings document (TOML text) without writing it.
+/// Returns `{"valid": true}` or `{"ok": false, "error": ...}` with the
+/// same message the Rust validator produces.
+#[no_mangle]
+pub extern "C" fn aether_gui_validate(toml_text: *const c_char) -> *mut c_char {
+    respond(|| {
+        let text = unsafe { read_str(toml_text)? };
+        let settings: crate::gui::GuiSettings = toml::from_str(&text)
+            .map_err(|e| format!("gui settings parse: {e}"))?;
+        settings.validate().map_err(|e| e.to_string())?;
+        Ok(json!({"valid": true}))
+    })
+}
+
+/// Default GUI settings as TOML text (for "Reset to defaults" and
+/// first-run forms). Pure, no I/O. Returns `{"defaults_toml": "..."}`.
+#[no_mangle]
+pub extern "C" fn aether_gui_defaults() -> *mut c_char {
+    respond(|| {
+        let text = toml::to_string_pretty(&crate::gui::GuiSettings::default())
+            .map_err(|e| format!("could not encode the default settings: {e}"))?;
+        Ok(json!({"defaults_toml": text}))
     })
 }
 
@@ -783,5 +916,112 @@ mod tests {
         let payload = text_of("{\"peer\":\"nonsense\"}");
         let reply = take(aether_verify_start(1, payload.as_ptr()));
         assert_eq!(reply["ok"], json!(false));
+    }
+
+    #[test]
+    fn events_poll_drains_in_fifo_order() {
+        let _guard = crate::events::lock_for_test();
+        take(aether_events_clear());
+        crate::events::emit(crate::events::ApiEvent::StateChanged {
+            state: "scanning".to_string(),
+        });
+        let reply = take(aether_events_poll(0));
+        assert_eq!(reply["ok"], json!(true));
+        assert_eq!(reply["events"].as_array().unwrap().len(), 1);
+        assert_eq!(reply["events"][0]["type"], json!("state_changed"));
+        // Buffer is drained.
+        let again = take(aether_events_poll(0));
+        assert_eq!(again["events"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn logs_poll_returns_buffered_lines() {
+        let _guard = crate::events::lock_for_test();
+        crate::guilog::clear();
+        crate::guilog::push(crate::guilog::GuiLogLevel::Info, "test", "hello-gui");
+        let reply = take(aether_log_poll(0, std::ptr::null()));
+        assert_eq!(reply["ok"], json!(true));
+        assert_eq!(reply["logs"].as_array().unwrap().len(), 1);
+        assert_eq!(reply["logs"][0]["message"], json!("hello-gui"));
+    }
+
+    #[test]
+    fn logs_poll_rejects_a_typo_instead_of_guessing() {
+        let level = text_of("verbose");
+        let reply = take(aether_log_poll(0, level.as_ptr()));
+        assert_eq!(reply["ok"], json!(false));
+        assert!(reply["error"].as_str().unwrap().contains("bad log level"));
+    }
+
+    #[test]
+    fn gui_validate_accepts_defaults_and_rejects_bad_protocol() {
+        let good = text_of("protocol = \"masque\"\nscan = \"balanced\"\n");
+        let reply = take(aether_gui_validate(good.as_ptr()));
+        assert_eq!(reply["ok"], json!(true));
+        assert_eq!(reply["valid"], json!(true));
+
+        let bad = text_of("protocol = \"nonsense\"\n");
+        let reply = take(aether_gui_validate(bad.as_ptr()));
+        assert_eq!(reply["ok"], json!(false));
+    }
+
+    #[test]
+    fn gool_payload_with_same_edge_twice_is_rejected() {
+        // Spec validation must run against a live identity handle:
+        // with an unknown id the lookup error would mask the spec error.
+        let fake = crate::account::Identity {
+            device_id: "test".to_string(),
+            access_token: "test".to_string(),
+            cert_pem: Vec::new(),
+            key_pem: Vec::new(),
+            cert_issued_at: 0,
+            ipv4: "172.16.0.2".to_string(),
+            ipv6: "::1".to_string(),
+            wg_private_key: [7u8; 32],
+            wg_peer_public_key: [9u8; 32],
+            client_id: [1, 2, 3],
+            organization: String::new(),
+            gateway_proxy: String::new(),
+            assigned_endpoint: String::new(),
+            refused: false,
+        };
+        let id = next_id();
+        identities().lock().insert(id, Arc::new(fake));
+        let payload = text_of(
+            "{\"peer\":\"1.2.3.4:2408\",\"transport\":\"gool\",\"outer\":\"162.159.192.1:2408\",\"inner\":\"162.159.192.1:894\"}",
+        );
+        let reply = take(aether_tunnel_start(id, payload.as_ptr()));
+        identities().lock().remove(&id);
+        assert_eq!(reply["ok"], json!(false));
+        assert!(reply["error"]
+            .as_str()
+            .unwrap()
+            .contains("two separate edges"));
+    }
+
+    #[test]
+    fn gool_pair_in_peer_field_resolves_outer_as_dial_peer() {
+        let payload: TunnelPayload = serde_json::from_str(
+            "{\"peer\":\"162.159.192.1:2408,188.114.96.1:500\",\"transport\":\"gool\"}",
+        )
+        .expect("valid json");
+        let spec = tunnel_spec_of(&payload).expect("a distinct pair");
+        assert_eq!(spec.outer.map(|a| a.port()), Some(2408));
+        assert_eq!(spec.inner.map(|a| a.port()), Some(500));
+        let dial = dial_peer_of(&payload, &spec).expect("dial peer");
+        assert_eq!(dial.ip().to_string(), "162.159.192.1");
+        assert_eq!(dial.port(), 2408);
+    }
+
+    #[test]
+    fn gui_defaults_come_back_as_toml() {
+        let reply = take(aether_gui_defaults());
+        assert_eq!(reply["ok"], json!(true));
+        let text = reply["defaults_toml"].as_str().expect("toml text");
+        assert!(text.contains("masque"), "defaults name the protocol");
+        // And the emitted TOML validates cleanly.
+        let back: crate::gui::GuiSettings =
+            toml::from_str(text).expect("defaults must parse");
+        assert_eq!(back, crate::gui::GuiSettings::default());
     }
 }
