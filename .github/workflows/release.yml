@@ -4,7 +4,13 @@ on:
   push:
     tags:
       - "v*"
+      - "[0-9]+.*"
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag name (e.g. 1.0.0 or v1.0.0)"
+        required: false
+        default: "1.0.0"
 
 permissions:
   contents: write
@@ -16,7 +22,7 @@ jobs:
   gui-desktop:
     name: GUI (${{ matrix.platform }} - ${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
-    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
     strategy:
       fail-fast: false
       matrix:
@@ -63,9 +69,6 @@ jobs:
         working-directory: aether-gui/frontend
         run: npm ci
 
-      # tauri-action writes a DRAFT for this tag — never publishes directly.
-      # The release job below is the sole publisher: it finalizes the draft
-      # and publishes all desktop and mobile assets.
       - name: Build desktop application (Tauri CLI)
         uses: tauri-apps/tauri-action@v0
         env:
@@ -80,19 +83,25 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: aether-gui
-          tagName: ${{ github.ref_name }}
-          releaseName: "Veil ${{ github.ref_name }}"
-          releaseDraft: true
+          tagName: ${{ inputs.tag_name || github.ref_name }}
+          releaseName: "Veil ${{ inputs.tag_name || github.ref_name }}"
+          releaseDraft: false
           prerelease: false
 
       - name: Gather and hash installers
         shell: bash
         run: |
           mkdir -p dist-gui
-          cp -r aether-gui/target/release/bundle/* dist-gui/ 2>/dev/null || true
+          find aether-gui/target/release/bundle -type f \( -name "*.msi" -o -name "*.exe" -o -name "*.dmg" -o -name "*.tar.gz" -o -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) -exec cp {} dist-gui/ \; 2>/dev/null || true
           cd dist-gui
-          for f in $(find . -type f \( -name "*.msi" -o -name "*.exe" -o -name "*.dmg" -o -name "*.tar.gz" -o -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \)); do
-            sha256sum "$f" > "$f.sha256"
+          for f in *; do
+            if [ -f "$f" ]; then
+              if command -v sha256sum >/dev/null 2>&1; then
+                sha256sum "$f" > "$f.sha256"
+              else
+                shasum -a 256 "$f" > "$f.sha256"
+              fi
+            fi
           done
 
       - name: Upload desktop artifacts
@@ -103,14 +112,12 @@ jobs:
           if-no-files-found: error
 
   # ------------------------------------------------------------------
-  # Android native APK & AAB. Tag-gated like gui-desktop.
-  # Needs ANDROID_* signing secrets before the first signed release;
-  # unsigned debug assembly still verifies the build.
+  # Android native APK & AAB.
   # ------------------------------------------------------------------
   gui-android:
     name: Android app (APK & AAB)
     runs-on: ubuntu-latest
-    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -186,7 +193,7 @@ jobs:
     name: Publish release
     needs: [gui-desktop, gui-android]
     runs-on: ubuntu-latest
-    if: ${{ always() && startsWith(github.ref, 'refs/tags/') }}
+    if: ${{ (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch') && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -200,22 +207,28 @@ jobs:
           shopt -s nullglob
           files=(*.msi *.exe *.dmg *.deb *.rpm *.AppImage *.apk *.aab *.tar.gz *.zip)
           for f in "${files[@]}"; do
-            sha256sum "$f" > "$f.sha256"
+            if [ -f "$f" ]; then
+              sha256sum "$f" > "$f.sha256"
+            fi
           done
-          sha256sum "${files[@]}" > SHA256SUMS.txt
-          echo "----- SHA256SUMS.txt -----"
-          cat SHA256SUMS.txt
+          if [ ${#files[@]} -gt 0 ]; then
+            sha256sum "${files[@]}" > SHA256SUMS.txt
+            echo "----- SHA256SUMS.txt -----"
+            cat SHA256SUMS.txt
+          fi
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.tag_name || github.ref_name }}
+          name: "Veil ${{ inputs.tag_name || github.ref_name }}"
           draft: false
           prerelease: false
           generate_release_notes: true
           fail_on_unmatched_files: false
           files: dist/**/*
           body: |
-            Veil ${{ github.ref_name }}
+            Veil ${{ inputs.tag_name || github.ref_name }}
 
             Veil is a stealth censorship circumvention client with dedicated Desktop GUI (Windows, macOS, Linux) and Mobile (Native Android VPN) applications.
 
