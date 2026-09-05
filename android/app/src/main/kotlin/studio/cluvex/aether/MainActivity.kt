@@ -4,9 +4,12 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,9 +24,13 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
@@ -33,44 +40,26 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import org.json.JSONObject
+import java.util.Locale
 
 /**
- * LAUNCHER activity: minimal Jetpack Compose UI driving [VpnTunnelService]
- * (GUI_PLAN.md §4.2).
+ * LAUNCHER activity: Material 3 Jetpack Compose UI driving [VpnTunnelService].
  *
- * VPN consent follows the platform flow: [VpnService.prepare] returns a
- * consent intent when this is the first grant, which is fired through
- * [vpnConsentLauncher]; an already-granted consent returns null and the
- * service starts directly. Connect/Disconnect buttons fire
- * [VpnTunnelService.ACTION_START] / [VpnTunnelService.ACTION_STOP] intents
- * (reusing its `EXTRA_*` constants — none duplicated here).
- *
- * Declared with `ACTION_MAIN` + `CATEGORY_LAUNCHER` in
- * `AndroidManifest.xml`, so `getLaunchIntentForPackage()` now resolves and
- * the notification fallback in [VpnTunnelService] opens this activity.
- *
- * `connected` is last-requested state only (no service callback yet).
- *
- * Phase-3 app work (GUI_PLAN.md §4.5):
- * - [statusLine] polls `CoreBridge.eventsPoll(0)` every few seconds and
- *   summarises the buffered core events (count, last type, latest rtt).
- *   Parsing is lenient: any bad JSON (or a missing native lib) falls back
- *   to a raw-character count instead of crashing.
- * - [trafficMode] is a local VPN-vs-Proxy selector persisted in
- *   SharedPreferences. It currently only records the preference (the
- *   service always brings up the TUN path); the proxy-only dial path
- *   consumes it in a follow-up.
- * - The log drawer polls `CoreBridge.logPoll(200, "")` while expanded and
- *   shows the tail of the core log, leniently parsed the same way.
- *
- * ⚠️ Uncompiled here (no Android SDK); first Gradle build must verify.
+ * Provides:
+ * - One-tap connect / disconnect with VPN consent check.
+ * - Real-time upload/download speed metrics and cumulative transfer counters.
+ * - Battery optimization exemption prompt.
+ * - Live core event latency summary and tail log viewer.
+ * - Traffic mode selector (VPN vs Proxy).
  */
 class MainActivity : ComponentActivity() {
 
     private var connected by mutableStateOf(false)
+    private var batteryOptimizationIgnored by mutableStateOf(true)
 
     private val vpnConsentLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -82,8 +71,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        connected = VpnTunnelService.isRunning
+        batteryOptimizationIgnored = isBatteryOptimizationIgnored()
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val initialMode = prefs.getString(KEY_TRAFFIC_MODE, MODE_VPN) ?: MODE_VPN
+
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -92,13 +84,55 @@ class MainActivity : ComponentActivity() {
                     var logsExpanded by remember { mutableStateOf(false) }
                     var logText by remember { mutableStateOf("") }
 
-                    // Status/latency line: poll the core event buffer.
+                    // Bandwidth metrics
+                    var rxBytes by remember { mutableStateOf(0L) }
+                    var txBytes by remember { mutableStateOf(0L) }
+                    var rxRate by remember { mutableStateOf(0L) }
+                    var txRate by remember { mutableStateOf(0L) }
+
+                    // Polling loop for core events and bandwidth stats
                     LaunchedEffect(Unit) {
+                        var lastStatsTime = 0L
                         while (true) {
-                            statusLine = summarizeEvents(safePoll { CoreBridge.eventsPoll(0) })
+                            connected = VpnTunnelService.isRunning
+                            val raw = safePoll { CoreBridge.eventsPoll(0) }
+                            if (raw.isNotEmpty()) {
+                                statusLine = summarizeEvents(raw)
+                                try {
+                                    val arr = JSONObject(raw).optJSONArray("events")
+                                    if (arr != null) {
+                                        val now = System.currentTimeMillis()
+                                        val dt = if (lastStatsTime > 0) (now - lastStatsTime) / 1000.0 else 0.0
+                                        for (i in 0 until arr.length()) {
+                                            val ev = arr.optJSONObject(i) ?: continue
+                                            when (ev.optString("type")) {
+                                                "stats" -> {
+                                                    val newRx = ev.optLong("rx_bytes", rxBytes)
+                                                    val newTx = ev.optLong("tx_bytes", txBytes)
+                                                    if (dt > 0.3 && lastStatsTime > 0) {
+                                                        if (newRx >= rxBytes) rxRate = ((newRx - rxBytes) / dt).toLong()
+                                                        if (newTx >= txBytes) txRate = ((newTx - txBytes) / dt).toLong()
+                                                    }
+                                                    rxBytes = newRx
+                                                    txBytes = newTx
+                                                    lastStatsTime = now
+                                                }
+                                                "tunnel_up" -> connected = true
+                                                "tunnel_down" -> {
+                                                    connected = false
+                                                    rxRate = 0L
+                                                    txRate = 0L
+                                                }
+                                            }
+                                        }
+                                    }
+                                } catch (_: Throwable) {
+                                }
+                            }
                             delay(STATUS_POLL_MS)
                         }
                     }
+
                     // Log drawer: poll only while expanded.
                     if (logsExpanded) {
                         LaunchedEffect(Unit) {
@@ -112,20 +146,118 @@ class MainActivity : ComponentActivity() {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(24.dp),
+                            .padding(24.dp)
+                            .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
+                        // Battery optimization warning banner
+                        if (!batteryOptimizationIgnored) {
+                            Card(
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 16.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Text(
+                                        text = "Battery Optimization Active",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "System battery saving may terminate the VPN tunnel in the background.",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    OutlinedButton(
+                                        onClick = {
+                                            requestIgnoreBatteryOptimizations()
+                                            batteryOptimizationIgnored = isBatteryOptimizationIgnored()
+                                        }
+                                    ) {
+                                        Text(text = "Disable Optimization")
+                                    }
+                                }
+                            }
+                        }
+
                         Text(
                             text = if (connected) "Connected" else "Disconnected",
-                            style = MaterialTheme.typography.headlineSmall
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = statusLine,
                             style = MaterialTheme.typography.bodySmall
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        // Real-time speed & bandwidth metrics cards
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Card(
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp)) {
+                                    Text(
+                                        text = "DOWNLOAD",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = formatSpeed(rxRate),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Total: " + formatBytes(rxBytes),
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                }
+                            }
+                            Card(
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp)) {
+                                    Text(
+                                        text = "UPLOAD",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = formatSpeed(txRate),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Total: " + formatBytes(txBytes),
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(20.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.Center
@@ -146,6 +278,7 @@ class MainActivity : ComponentActivity() {
                         }
                         Spacer(modifier = Modifier.height(16.dp))
                         Button(
+                            modifier = Modifier.fillMaxWidth(0.6f),
                             onClick = {
                                 if (connected) stopVpnService() else checkAndLaunchVpn()
                             }
@@ -168,6 +301,36 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     }
+                }
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        connected = VpnTunnelService.isRunning
+        batteryOptimizationIgnored = isBatteryOptimizationIgnored()
+    }
+
+    private fun isBatteryOptimizationIgnored(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            return powerManager?.isIgnoringBatteryOptimizations(packageName) ?: true
+        }
+        return true
+    }
+
+    private fun requestIgnoreBatteryOptimizations() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+                startActivity(intent)
+            } catch (_: Exception) {
+                try {
+                    startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                } catch (_: Exception) {
                 }
             }
         }
@@ -223,9 +386,27 @@ class MainActivity : ComponentActivity() {
         private const val KEY_TRAFFIC_MODE = "traffic_mode"
         private const val MODE_VPN = "VPN"
         private const val MODE_PROXY = "Proxy"
-        private const val STATUS_POLL_MS = 2500L
+        private const val STATUS_POLL_MS = 2000L
         private const val LOG_POLL_MS = 3000L
         private const val MAX_LOG_CHARS = 4000
+
+        /** Format raw bytes into human-readable notation (e.g. 14.2 MB). */
+        fun formatBytes(bytes: Long): String {
+            if (bytes <= 0) return "0 B"
+            val units = arrayOf("B", "KB", "MB", "GB", "TB")
+            val digitGroups = (Math.log10(bytes.toDouble()) / Math.log10(1024.0)).toInt().coerceIn(0, units.size - 1)
+            val value = bytes / Math.pow(1024.0, digitGroups.toDouble())
+            return String.format(Locale.US, "%.1f %s", value, units[digitGroups])
+        }
+
+        /** Format raw bytes/s into human-readable transfer rate (e.g. 2.4 MB/s). */
+        fun formatSpeed(bytesPerSec: Long): String {
+            if (bytesPerSec <= 0) return "0 B/s"
+            val units = arrayOf("B/s", "KB/s", "MB/s", "GB/s")
+            val digitGroups = (Math.log10(bytesPerSec.toDouble()) / Math.log10(1024.0)).toInt().coerceIn(0, units.size - 1)
+            val value = bytesPerSec / Math.pow(1024.0, digitGroups.toDouble())
+            return String.format(Locale.US, "%.1f %s", value, units[digitGroups])
+        }
 
         /** Runs [poll], returning "" on ANY failure (bad JSON, missing .so). */
         private fun safePoll(poll: () -> String): String {
