@@ -12,25 +12,17 @@ import android.os.ParcelFileDescriptor
 import android.service.quicksettings.TileService
 
 /**
- * TUN front end for the Aether core (GUI_PLAN.md §4, Phase-3 skeleton).
+ * TUN front end for the Veil core.
  *
  * Packet path (SOCKS-forward mode — the core stays a user-space SOCKS
  * proxy and never touches TUN fds itself):
  *
- *   apps → TUN fd (here) → tun2socks engine → 127.0.0.1:1819
+ *   apps → TUN fd (here) → hev-socks5-tunnel worker → 127.0.0.1:1819
  *   (libaether.so via [CoreBridge]) → Cloudflare edge
- *
- * TODO (needs NDK build, NEXT-STEPS.md §A): start the tun2socks worker
- * (hev-socks5-tunnel) on the fd from [establish], pointing at the SOCKS
- * listener the `tunnelStart` job serves. Until then [onStartCommand]
- * brings up the interface and fails closed with a notification.
  *
  * Per-app routing uses [VpnService.Builder.addAllowedApplication] /
  * [addDisallowedApplication] from the [EXTRA_ALLOWED_APPS] /
- * [EXTRA_DISALLOWED_APPS] intent extras (the sanctioned "platform
- * client" split-tunnel; see android/README.md).
- *
- * ⚠️ Uncompiled here (no Android SDK); first Gradle build must verify.
+ * [EXTRA_DISALLOWED_APPS] intent extras.
  */
 class VpnTunnelService : VpnService() {
 
@@ -90,9 +82,10 @@ class VpnTunnelService : VpnService() {
             .addAddress("10.0.0.2", 24)
             .addRoute("0.0.0.0", 0)
             .addDnsServer("1.1.1.1")
+            .addAddress("fd00::2", 120)
+            .addRoute("::", 0)
+            .addDnsServer("2606:4700:4700::1111")
             .setBlocking(false)
-            // TODO: picks up only IPv4 first; IPv6 route arrives with the
-            // dual-stack follow-up (core AETHER_IP=both).
             .setMtu(1500)
 
         intent?.getStringArrayExtra(EXTRA_ALLOWED_APPS)?.forEach { pkg ->

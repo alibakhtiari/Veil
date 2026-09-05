@@ -33,21 +33,16 @@ front end; per-app allow/block uses
 - `app/src/main/kotlin/studio/cluvex/aether/CoreBridge.kt` — JNI
   declarations, 1:1 with the C shim below.
 - `app/src/main/kotlin/studio/cluvex/aether/VpnTunnelService.kt` —
-  TUN front end (SOCKS-forward mode), per-app allow/disallow lists,
-  foreground notification. tun2socks worker hookup is TODO.
+  TUN front end (dual-stack IPv4/IPv6 SOCKS-forward mode), per-app allow/disallow lists,
+  Always-On VPN support, foreground notification, and Quick Settings tile state synchronization.
 - `app/src/main/kotlin/studio/cluvex/aether/HevSocks5Tunnel.kt` — JNI
-  facade over the hev-socks5-tunnel worker (`start(fd, host, port)` /
-  `stop()`); native sources not yet vendored (see KDoc for exact steps).
-  ⚠️ Not yet compiled here (no JDK/NDK in this environment); first NDK
-  build must verify it.
-- `app/src/main/kotlin/studio/cluvex/aether/MainActivity.kt` — LAUNCHER
-  Compose UI (status text + Connect/Disconnect button) with the
-  `VpnService.prepare()` consent flow firing `VpnTunnelService`
-  start/stop intents.
-  ⚠️ Not yet compiled here (no SDK in this environment); first Gradle
-  build must verify it.
+  facade over the vendored `hev-socks5-tunnel` worker (`start(fd, host, port)` /
+  `stop()`).
+- `app/src/main/kotlin/studio/cluvex/aether/MainActivity.kt` — Material 3
+  Compose UI (bandwidth metrics, live download/upload speeds, battery optimization exemption prompt,
+  traffic mode selector, and log drawer) with `VpnService.prepare()` consent flow.
 - `app/src/main/kotlin/studio/cluvex/aether/AetherTileService.kt` —
-  Quick Settings tile firing start/stop intents.
+  Quick Settings tile synchronized with active tunnel state.
 - `app/src/main/AndroidManifest.xml` — launcher activity, VPN + tile
   services, permissions.
 - `app/src/main/cpp/aether_jni.c` — ownership-safe shim
@@ -85,7 +80,3 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 `libaether.so` ABIs: `aarch64-linux-android`, `armv7-linux-androideabi`,
 `x86_64-linux-android` → `app/src/main/jniLibs/<abi>/`.
-
-Compose UI + tun2socks worker hookup arrive with the Phase-3 app work;
-this tree locks the bridge contract so the core can evolve without
-breaking it.
