@@ -658,9 +658,12 @@ pub fn elevate_argv_for(os: &str, argv: Vec<String>) -> Result<Vec<String>, Stri
         "macos" => {
             let script = argv
                 .iter()
-                .map(|a| match a.contains(' ') {
-                    true => format!("\"{a}\""),
-                    false => a.clone(),
+                .map(|a| {
+                    let escaped = a.replace('\\', "\\\\").replace('"', "\\\"");
+                    match a.contains(' ') || a.contains('"') {
+                        true => format!("\\\"{escaped}\\\""),
+                        false => escaped,
+                    }
                 })
                 .collect::<Vec<_>>()
                 .join(" ");
@@ -685,6 +688,12 @@ pub fn elevate_argv(argv: Vec<String>) -> Result<Vec<String>, String> {
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     let os = "unsupported";
     elevate_argv_for(os, argv)
+}
+
+/// Execute an elevated OS command via [`elevate_argv`].
+pub fn apply_elevated(argv: &[String]) -> Result<String, String> {
+    let elevated = elevate_argv(argv.to_vec())?;
+    crate::proxy::apply_argv(&elevated).map_err(|e| format!("elevation failed: {e}"))
 }
 
 /// RAII owner of a TUN session: stops forwarding and replays the route
