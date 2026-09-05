@@ -8,6 +8,10 @@
 
 name: ci
 
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+
 on:
   push:
     branches: [main]
@@ -75,15 +79,13 @@ jobs:
             libwebkit2gtk-4.1-dev libappindicator3-dev \
             librsvg2-dev patchelf
 
-      - name: Desktop GUI backend tests (default + tun feature)
+      - name: Desktop GUI backend tests (with tun feature)
         working-directory: aether-gui/src-tauri
-        run: |
-          cargo test
-          cargo test --features tun
+        run: cargo test --features tun
 
       - name: Clippy (GUI backend, warnings deny the job)
         working-directory: aether-gui/src-tauri
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --all-targets --features tun -- -D warnings
 
   test-frontend:
     name: Frontend typecheck & build
