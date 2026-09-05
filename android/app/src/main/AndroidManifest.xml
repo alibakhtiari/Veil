@@ -12,7 +12,7 @@
         android:label="Veil"
         android:theme="@android:style/Theme.Material.NoActionBar">
 
-        <!-- LAUNCHER activity (GUI_PLAN.md §4.2): also gives
+        <!-- LAUNCHER activity: also gives
              VpnTunnelService's notification intent a real target via
              getLaunchIntentForPackage(). -->
         <activity

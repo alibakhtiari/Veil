@@ -8,16 +8,14 @@ import android.service.quicksettings.TileService
 
 /**
  * Quick Settings tile: one-tap connect/disconnect from the notification
- * shade (GUI_PLAN.md §4.2).
+ * shade.
  *
  * The tile does not talk JNI itself: it fires [VpnTunnelService] start/
  * stop intents (which require user VPN consent via
  * `VpnService.prepare()` exactly once — handled by the MainActivity,
- * not here). State shown is last-known; the service updates the tile
- * via `requestListeningState()` on transitions (TODO with the live
- * event poll in Phase-3 app work).
+ * not here). State shown is synchronized with [VpnTunnelService.isRunning].
  *
- * Requires API 24+. ⚠️ Uncompiled here (no Android SDK).
+ * Requires API 24+.
  */
 class AetherTileService : TileService() {
 

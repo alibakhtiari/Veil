@@ -1,7 +1,7 @@
 package studio.cluvex.aether
 
 /**
- * JNI facade over the `hev-socks5-tunnel` tun2socks worker (GUI_PLAN.md §4.3).
+ * JNI facade over the vendored `hev-socks5-tunnel` worker.
  *
  * Contract:
  * - [start] takes `fd`, the TUN file descriptor returned by
@@ -13,16 +13,6 @@ package studio.cluvex.aether
  *   (see `VpnTunnelService.teardown()`).
  *
  * The native symbols live in `libaether_jni.so`, which links the worker.
- * Vendoring (NDK build — exact steps, do NOT vendor C sources by hand):
- * 1. Clone `hev-socks5-tunnel` at a pinned revision into
- *    `app/src/main/cpp/hev/`.
- * 2. In `app/src/main/cpp/CMakeLists.txt` add `add_subdirectory(hev)` and
- *    `target_link_libraries(aether_jni hev-socks5-tunnel)`.
- *
- * Until the worker is vendored and started, the tunnel stays in the
- * fail-closed skeleton mode described on [VpnTunnelService].
- *
- * ⚠️ Uncompiled here (no Android SDK/NDK); first Gradle/NDK build must verify.
  */
 object HevSocks5Tunnel {
     init {

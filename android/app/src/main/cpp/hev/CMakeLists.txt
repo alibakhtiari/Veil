@@ -1,4 +1,4 @@
-# hev-socks5-tunnel vendored build (GUI_PLAN.md §4.2).
+# hev-socks5-tunnel vendored build.
 #
 # Upstream: https://github.com/heiher/hev-socks5-tunnel
 # Pinned revision: tag 2.9.3

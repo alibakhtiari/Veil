@@ -271,10 +271,7 @@ JNIEXPORT jstring JNICALL CLS(guiDefaults)(JNIEnv *env, jobject thiz) {
 
 /* ---- hev-socks5-tunnel worker (HevSocks5Tunnel facade) ----
  *
- * DEVIATION FROM GUI_PLAN.md §4.2: the plan's sketch calls
- *   hev_socks5_tunnel_main_from_fd(fd, host, port)
- * but no such symbol exists upstream (tag 2.9.3). The real public API
- * (hev/src/hev-main.h) is:
+ * The public API (hev/src/hev-main.h) is:
  *   int  hev_socks5_tunnel_main_from_str(const unsigned char *, unsigned int, int);
  *   void hev_socks5_tunnel_quit(void);
  * (plus the file-backed twin hev_socks5_tunnel_main_from_file and the
