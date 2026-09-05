@@ -2,13 +2,15 @@
 pub mod account;
 pub mod api;
 pub mod apifront;
-pub mod cli;
 pub mod config;
 pub mod consts;
 pub mod dns;
 pub mod error;
+pub mod events;
 pub mod ffi;
 pub mod fragment;
+pub mod gui;
+pub mod guilog;
 pub mod lastconn;
 pub mod masque;
 pub mod masque_h2;
@@ -75,9 +77,7 @@ pub async fn run() -> Result<()> {
     run_with(std::env::args().skip(1).collect()).await
 }
 
-pub async fn run_with(args: Vec<String>) -> Result<()> {
-    cli::parse_args(args)?;
-
+pub async fn run_with(_args: Vec<String>) -> Result<()> {
     let level = std::env::var("AETHER_LOG_LEVEL")
         .ok()
         .map(|v| v.trim().to_lowercase())
@@ -394,7 +394,7 @@ async fn run_gool(
                     .map(|peer| peer.ip())
                     .collect();
 
-                let mode_str = select_scan_mode_str(WIW_MANUAL_TIP).await;
+                let mode_str = select_scan_mode_str("").await;
                 let ip = select_ip_version().await;
 
                 let found = match select_wg_peers(&primary, &mode_str, ip, wanted, &avoid).await {
@@ -403,7 +403,7 @@ async fn run_gool(
                         log::warn!(
                             "[-] no usable WARP endpoint found: {e}; rescanning shortly"
                         );
-                        tokio::time::sleep(wg_reconnect_delay()).await;
+                        sleep_reconnecting(wg_reconnect_delay()).await;
                         continue;
                     }
                 };
@@ -420,7 +420,7 @@ async fn run_gool(
                         );
                         outer_peer = pinned.outer;
                         inner_peer = pinned.inner;
-                        tokio::time::sleep(wg_reconnect_delay()).await;
+                        sleep_reconnecting(wg_reconnect_delay()).await;
                         continue;
                     }
                 }
@@ -445,8 +445,18 @@ async fn run_gool(
         }
         consecutive_fails += 1;
 
-        tokio::time::sleep(wg_reconnect_delay()).await;
+        sleep_reconnecting(wg_reconnect_delay()).await;
     }
+}
+
+/// Sleep before a reconnect attempt, telling GUI clients first so the
+/// "Reconnecting in N s — Stop" UI can show a live countdown instead of
+/// guessing from silent logs.
+async fn sleep_reconnecting(delay: std::time::Duration) {
+    crate::events::emit(crate::events::ApiEvent::Reconnecting {
+        in_secs: delay.as_secs(),
+    });
+    tokio::time::sleep(delay).await;
 }
 
 fn install_netstack_panic_guard() {
@@ -478,127 +488,6 @@ fn aethernoize_config() -> aethernoize::AetherNoizeConfig {
 
 fn team_scope() -> Option<String> {
     zerotrust::TeamSettings::from_env().map(|settings| settings.team)
-}
-
-fn enrolled_teams(base: &str) -> Vec<String> {
-    let dir_end = base.rfind(|c| c == '/' || c == '\\').map(|i| i + 1).unwrap_or(0);
-    let dir = if dir_end == 0 { "." } else { &base[..dir_end] };
-    let stem = match base[dir_end..].rfind('.') {
-        Some(rel) => &base[dir_end..dir_end + rel],
-        None => &base[dir_end..],
-    };
-    let prefix = format!("{stem}-team-");
-
-    let entries = match std::fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(_) => return Vec::new(),
-    };
-
-    let mut teams: Vec<String> = Vec::new();
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().to_string();
-        let Some(rest) = name.strip_prefix(&prefix) else {
-            continue;
-        };
-        let Some(team) = rest.strip_suffix(".toml") else {
-            continue;
-        };
-        if team.is_empty() || team.ends_with("-secondary") || team.ends_with("-lastconn") {
-            continue;
-        }
-        if !teams.iter().any(|known| known == team) {
-            teams.push(team.to_string());
-        }
-    }
-    teams.sort();
-    teams
-}
-
-async fn enrol_zero_trust(base: &str) {
-    let known = enrolled_teams(base);
-
-    let prompt = match known.first() {
-        Some(team) => format!(
-            "\nZero Trust organization.\n  already enrolled: {}\nTeam name from \
-             <team>.cloudflareaccess.com, or blank to reuse '{}': ",
-            known.join(", "),
-            team
-        ),
-        None => "\nZero Trust organization.\nTeam name from <team>.cloudflareaccess.com \
-                 (blank to cancel): "
-            .to_string(),
-    };
-
-    let answer = prompt_line(&prompt).await.unwrap_or_default();
-    let answer = answer.trim().to_string();
-
-    let team = if answer.is_empty() {
-        match known.first() {
-            Some(team) => team.clone(),
-            None => {
-                log::info!("[*] Zero Trust skipped; staying on personal WARP");
-                return;
-            }
-        }
-    } else {
-        match zerotrust::normalize_team(&answer) {
-            Some(team) => team,
-            None => {
-                log::warn!("[-] '{answer}' is not a usable team name");
-                return;
-            }
-        }
-    };
-
-    std::env::set_var("AETHER_TEAM", &team);
-
-    if known.iter().any(|enrolled| *enrolled == team) {
-        log::info!("[+] reusing the saved enrolment for team {team}; no sign-in needed");
-        return;
-    }
-
-    let needs_method = match zerotrust::TeamSettings::from_env() {
-        Some(settings) => {
-            !(settings.token.is_some() || settings.has_service_token() || settings.email.is_some())
-        }
-        None => {
-            std::env::remove_var("AETHER_TEAM");
-            return;
-        }
-    };
-
-    if needs_method {
-        let email = prompt_line("Email address for the one-time login code (blank to cancel): ")
-            .await
-            .unwrap_or_default();
-        let email = email.trim().to_string();
-
-        if email.is_empty() {
-            log::warn!("[-] no email given; staying on personal WARP");
-            std::env::remove_var("AETHER_TEAM");
-            return;
-        }
-
-        std::env::set_var("AETHER_ACCESS_EMAIL", &email);
-    }
-
-    let settings = match zerotrust::TeamSettings::from_env() {
-        Some(settings) => settings,
-        None => {
-            std::env::remove_var("AETHER_TEAM");
-            return;
-        }
-    };
-
-    match zerotrust::resolve_token(&settings).await {
-        Ok(_) => log::info!("[+] signed in to team {team}; now pick the transport to use"),
-        Err(error) => {
-            log::error!("[-] Zero Trust sign-in failed: {error}");
-            log::warn!("[-] staying on personal WARP");
-            std::env::remove_var("AETHER_TEAM");
-            std::env::remove_var("AETHER_ACCESS_EMAIL");
-        }
-    }
 }
 
 async fn provision_account() -> Result<account::Identity> {
@@ -676,7 +565,7 @@ fn masque_config_path(base: &str) -> String {
 }
 
 fn derive_sibling_path(base: &str, suffix: &str) -> String {
-    let dir_end = base.rfind(|c| c == '/' || c == '\\').map(|i| i + 1).unwrap_or(0);
+    let dir_end = base.rfind(['/', '\\']).map(|i| i + 1).unwrap_or(0);
     match base[dir_end..].rfind('.') {
         Some(rel) => {
             let dot = dir_end + rel;
@@ -853,7 +742,7 @@ async fn select_wg_peers(
     let probe = wg_prober::WgProbe {
         private_key: std::sync::Arc::new(private_key),
         peer_public_key: std::sync::Arc::new(peer_public),
-        client_id: identity.client_id.clone(),
+        client_id: identity.client_id,
         local_ipv4: identity
             .ipv4
             .parse()
@@ -1010,20 +899,11 @@ async fn quick_verify_masque_peer(identity: &account::Identity, peer: SocketAddr
     quic::verify_masque(&vp).await.is_ok()
 }
 
-async fn want_quick_reconnect(cached: &lastconn::LastConnection) -> bool {
+async fn want_quick_reconnect(_cached: &lastconn::LastConnection) -> bool {
     match std::env::var("AETHER_QUICK_RECONNECT").as_deref() {
-        Ok("1") | Ok("true") | Ok("yes") | Ok("on") => return true,
-        Ok("0") | Ok("false") | Ok("no") | Ok("off") => return false,
-        _ => {}
+        Ok("0") | Ok("false") | Ok("no") | Ok("off") => false,
+        _ => true,
     }
-
-    let answer = prompt_line(&format!(
-        "\nLast working gateway: {} (profile '{}')\nReconnect to it now without rescanning? [Y/n]: ",
-        cached.peer, cached.profile
-    ))
-    .await;
-
-    !matches!(answer.as_deref(), Some(a) if a.eq_ignore_ascii_case("n") || a.eq_ignore_ascii_case("no"))
 }
 
 async fn run_masque(
@@ -1110,7 +990,7 @@ async fn run_masque(
                         Ok(peer) => peer,
                         Err(e) => {
                             log::warn!("[-] no usable MASQUE gateway found: {e}; rescanning shortly");
-                            tokio::time::sleep(masque_reconnect_delay()).await;
+                            sleep_reconnecting(masque_reconnect_delay()).await;
                             continue;
                         }
                     },
@@ -1132,7 +1012,7 @@ async fn run_masque(
             Err(e) => log::warn!("[-] MASQUE tunnel ended: {e}; reconnecting"),
         }
 
-        tokio::time::sleep(masque_reconnect_delay()).await;
+        sleep_reconnecting(masque_reconnect_delay()).await;
     }
 }
 
@@ -1548,7 +1428,7 @@ async fn run_wireguard(identity: account::Identity, listen: SocketAddr, lastconn
                             Ok(v) => v,
                             Err(e) => {
                                 log::warn!("[-] no usable WireGuard endpoint found: {e}; rescanning shortly");
-                                tokio::time::sleep(wg_reconnect_delay()).await;
+                                sleep_reconnecting(wg_reconnect_delay()).await;
                                 continue;
                             }
                         }
@@ -1580,7 +1460,7 @@ async fn run_wireguard(identity: account::Identity, listen: SocketAddr, lastconn
             }
         }
 
-        tokio::time::sleep(wg_reconnect_delay()).await;
+        sleep_reconnecting(wg_reconnect_delay()).await;
     }
 }
 
@@ -1781,15 +1661,10 @@ async fn spawn_udp_forwarder(
     let up_peer = inner_peer.clone();
     let up_task = tokio::spawn(async move {
         let mut buf = vec![0u8; 65536];
-        loop {
-            match up_sock.recv_from(&mut buf).await {
-                Ok((n, from)) => {
-                    *up_peer.lock().await = Some(from);
-                    if udp_tx.send_to(remote, buf[..n].to_vec()).await.is_err() {
-                        break;
-                    }
-                }
-                Err(_) => break,
+        while let Ok((n, from)) = up_sock.recv_from(&mut buf).await {
+            *up_peer.lock().await = Some(from);
+            if udp_tx.send_to(remote, buf[..n].to_vec()).await.is_err() {
+                break;
             }
         }
     });
@@ -1888,93 +1763,23 @@ fn join_outcome(
     }
 }
 
-async fn prompt_line(prompt: &str) -> Option<String> {
-    use std::io::IsTerminal;
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-
-    if !std::io::stdin().is_terminal() {
-        return None;
-    }
-
-    let mut stdout = tokio::io::stdout();
-    let _ = stdout.write_all(prompt.as_bytes()).await;
-    let _ = stdout.flush().await;
-
-    let mut line = String::new();
-    let mut reader = BufReader::new(tokio::io::stdin());
-    match reader.read_line(&mut line).await {
-        Ok(0) | Err(_) => None,
-        Ok(_) => Some(line.trim().to_string()),
-    }
-}
-
-const SCAN_MODE_PROMPT: &str = "\nScan mode:\n  [1] turbo     (fast, first hit)\n  [2] balanced  (default)\n  [3] thorough  (deep, best ping)\n  [4] stealth   (quiet, patient)\n  [5] ironclad  (real tunnel + real HTTP check per candidate, guaranteed working)\nChoose [1-5] (default 2): ";
-
-/// Shown above the scan mode question on warp-in-warp, where the addresses can
-/// be handed over instead of hunted for.
-const WIW_MANUAL_TIP: &str = "\n(tip: you can skip this scan and give the two gool hops yourself:\n        aether --gool --wiw-outer <ip:port> --wiw-inner <ip:port>\n      the port is required, and naming just one of the two lets the scan\n      find the other)\n";
-
 async fn select_scan_mode() -> prober::ScanMode {
     if let Ok(v) = std::env::var("AETHER_SCAN") {
-        return prober::ScanMode::parse(&v);
-    }
-
-    let answer = prompt_line(SCAN_MODE_PROMPT).await;
-
-    match answer.as_deref() {
-        Some("1") => prober::ScanMode::Turbo,
-        Some("3") => prober::ScanMode::Thorough,
-        Some("4") => prober::ScanMode::Stealth,
-        Some("5") => prober::ScanMode::Ironclad,
-        _ => prober::ScanMode::Balanced,
+        prober::ScanMode::parse(&v)
+    } else {
+        prober::ScanMode::Balanced
     }
 }
 
-/// `tip` is printed above the question, for whatever the caller wants to point
-/// out about scanning in the mode it is about to run.
-async fn select_scan_mode_str(tip: &str) -> String {
-    if let Ok(v) = std::env::var("AETHER_SCAN") {
-        return v;
-    }
-
-    let answer = prompt_line(&format!("{tip}{SCAN_MODE_PROMPT}")).await;
-
-    match answer.as_deref() {
-        Some("1") => "turbo".to_string(),
-        Some("3") => "thorough".to_string(),
-        Some("4") => "stealth".to_string(),
-        Some("5") => "ironclad".to_string(),
-        _ => "balanced".to_string(),
-    }
+async fn select_scan_mode_str(_tip: &str) -> String {
+    std::env::var("AETHER_SCAN").unwrap_or_else(|_| "balanced".to_string())
 }
 
-async fn select_protocol(base: &str) -> Protocol {
+async fn select_protocol(_base: &str) -> Protocol {
     if let Ok(v) = std::env::var("AETHER_PROTOCOL") {
-        return Protocol::parse(&v);
-    }
-
-    loop {
-        let zero_trust = match team_scope() {
-            Some(team) => format!("  [4] Zero Trust: signed in to {team}, pick another team\n"),
-            None => "  [4] Zero Trust: sign in to an organization (WARP for teams)\n".to_string(),
-        };
-
-        let answer = prompt_line(&format!(
-            "\nProtocol:\n  [1] MASQUE (modern, QUIC/H3, default)\n  \
-             [2] WireGuard (classic, faster)\n  [3] WARP-in-WARP / gool\n{zero_trust}\
-             Choose [1-4] (default 1): "
-        ))
-        .await;
-
-        match answer.as_deref() {
-            Some("2") => return Protocol::WireGuard,
-            Some("3") => return Protocol::WarpInWarp,
-            Some("4") => {
-                enrol_zero_trust(base).await;
-                continue;
-            }
-            _ => return Protocol::Masque,
-        }
+        Protocol::parse(&v)
+    } else {
+        Protocol::Masque
     }
 }
 
@@ -2003,35 +1808,13 @@ impl Protocol {
     }
 }
 
-async fn select_masque_transport() {
-    if std::env::var("AETHER_MASQUE_HTTP2").is_ok() || std::env::var("AETHER_PEER").is_ok() {
-        return;
-    }
-
-    let answer = prompt_line(
-        "\nMASQUE transport:\n  [1] HTTP/3 (QUIC)  (default; fastest handshake, best on healthy UDP networks)\n  [2] HTTP/2 (TCP)   (looks like ordinary HTTPS; use if UDP/QUIC is blocked or throttled)\nChoose [1-2] (default 1): ",
-    )
-    .await;
-
-    if matches!(answer.as_deref(), Some("2")) {
-        std::env::set_var("AETHER_MASQUE_HTTP2", "1");
-    }
-}
+async fn select_masque_transport() {}
 
 async fn select_ip_version() -> prober::IpScan {
     if let Ok(v) = std::env::var("AETHER_IP") {
-        return prober::IpScan::parse(&v);
-    }
-
-    let answer = prompt_line(
-        "\nIP version to scan:\n  [1] IPv4 (default)\n  [2] IPv6\n  [3] Both\nChoose [1-3] (default 1): ",
-    )
-    .await;
-
-    match answer.as_deref() {
-        Some("2") => prober::IpScan::V6,
-        Some("3") => prober::IpScan::Both,
-        _ => prober::IpScan::V4,
+        prober::IpScan::parse(&v)
+    } else {
+        prober::IpScan::V4
     }
 }
 
