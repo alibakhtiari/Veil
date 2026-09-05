@@ -63,17 +63,15 @@ jobs:
         working-directory: aether-gui/frontend
         run: npm ci
 
-      # NOTE (AUDIT_REPORT.md §3.1.3): tauri-action must only ever write
-      # a DRAFT for this tag — never publish. The `release` job below
-      # (ordered after this one via `needs`) is the sole publisher: it
-      # finalizes the draft and uploads dist/** (same filenames replace
-      # the draft assets). Do not set releaseDraft: false here.
+      # tauri-action writes a DRAFT for this tag — never publishes directly.
+      # The release job below is the sole publisher: it finalizes the draft
+      # and publishes all desktop and mobile assets.
       - name: Build desktop application (Tauri CLI)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_KEY_PASSWORD }}
+          TAURI_SIGNING_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || secrets.TAURI_SIGNING_KEY_PASSWORD }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -105,9 +103,9 @@ jobs:
           if-no-files-found: error
 
   # ------------------------------------------------------------------
-  # Android native APK & AAB (GUI_PLAN.md §4 + §6.2). Tag-gated like
-  # gui-desktop. Needs ANDROID_* signing secrets before the first
-  # signed release; unsigned debug assembly still verifies the build.
+  # Android native APK & AAB. Tag-gated like gui-desktop.
+  # Needs ANDROID_* signing secrets before the first signed release;
+  # unsigned debug assembly still verifies the build.
   # ------------------------------------------------------------------
   gui-android:
     name: Android app (APK & AAB)
@@ -162,7 +160,7 @@ jobs:
         uses: r0adkll/sign-android-release@v1
         with:
           releaseDirectory: android/app/build/outputs/apk/release
-          signingKey: ${{ secrets.ANDROID_SIGNING_KEY }}
+          signingKey: ${{ secrets.ANDROID_KEYSTORE_BASE64 || secrets.ANDROID_SIGNING_KEY }}
           keyStorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           alias: ${{ secrets.ANDROID_KEY_ALIAS }}
           keyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
@@ -200,7 +198,7 @@ jobs:
         run: |
           cd dist
           shopt -s nullglob
-          files=(*.msi *.exe *.dmg *.deb *.rpm *.AppImage *.apk *.aab)
+          files=(*.msi *.exe *.dmg *.deb *.rpm *.AppImage *.apk *.aab *.tar.gz *.zip)
           for f in "${files[@]}"; do
             sha256sum "$f" > "$f.sha256"
           done

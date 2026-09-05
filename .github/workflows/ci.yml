@@ -1,10 +1,8 @@
 # Continuous verification: unit tests + frontend checks.
 #
-# NOTE (GUI_PLAN.md §2.3): no xvfb/X11 is needed — every test in this
-# repo is headless by design (pure builders, ring buffers, loopback
-# sockets, pre-cancelled tokens). The Tauri window only exists in
-# main(), which tests never execute. If a future test opens a window,
-# gate it behind xvfb at that point, not preemptively.
+# Headless test verification: pure builders, ring buffers, loopback
+# sockets, pre-cancelled tokens. The Tauri window only exists in
+# main(), which unit tests never execute.
 #
 # Tag releases are handled by release.yml; this workflow guards main.
 
