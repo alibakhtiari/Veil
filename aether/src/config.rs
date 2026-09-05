@@ -166,7 +166,11 @@ fn write_private(path: &str, contents: &str) -> Result<()> {
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "aether.toml".to_string());
-    temporary.set_file_name(format!(".{name}.{}.tmp", std::process::id()));
+    // Threads share a PID, so the counter keeps concurrent saves from
+    // sharing one temp file (same fix as gui::unique_tmp).
+    static CTR: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = CTR.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    temporary.set_file_name(format!(".{name}.{}.{n}.tmp", std::process::id()));
 
     let outcome = (|| -> Result<()> {
         {
@@ -303,6 +307,38 @@ mod tests {
             .mode()
             & 0o777;
         assert_eq!(mode, 0o600, "found mode {mode:o}, expected 600");
+    }
+
+    #[test]
+    fn concurrent_saves_share_no_temporary_file() {
+        let dir = scratch("concurrent");
+        let path = dir.join("aether.toml");
+        let path_str = path.to_str().unwrap().to_string();
+
+        let handles: Vec<_> = (0..8)
+            .map(|i| {
+                let path = path_str.clone();
+                std::thread::spawn(move || {
+                    let mut id = sample();
+                    id.device_id = format!("device-{i}");
+                    save(&path, &id).expect("concurrent save");
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle.join().expect("thread");
+        }
+
+        // One atomic winner; the survivor parses.
+        let loaded = load(&path_str).expect("load").expect("identity");
+        assert!(loaded.device_id.starts_with("device-"));
+        let leftovers: Vec<String> = std::fs::read_dir(&dir)
+            .expect("read dir")
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .filter(|name| name.ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "temporary files left: {leftovers:?}");
     }
 
     #[test]
