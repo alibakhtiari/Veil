@@ -251,5 +251,5 @@ jobs:
 
             Every installer ships with a matching .sha256 file, and SHA256SUMS.txt lists them all.
 
-            See README.md and TODO.md for setup instructions and roadmap.
+            See README.md for setup instructions and documentation.
 

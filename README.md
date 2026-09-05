@@ -1,7 +1,7 @@
 # Veil
 
 ### اینترنت آزاد برای همه :))
-**[راهنمای فارسی](README.fa.md)** · **[Roadmap & Tasks](TODO.md)**
+**[راهنمای فارسی](README.fa.md)**
 
 Veil is an encrypted stealth tunnel client designed for heavily restricted networks. It automatically discovers reachable routes, establishes an obfuscated tunnel, and exposes a local SOCKS5 proxy or provides full device VPN routing through modern desktop and mobile graphical applications.
 
@@ -22,9 +22,9 @@ Unlike traditional VPN clients, Veil is engineered for environments where Deep P
 
 Prebuilt installers and applications are available on the Releases page:
 
-- **Windows:** `.msi` installer, `.exe` setup
-- **macOS:** `.dmg` (Universal Binary for Apple Silicon & Intel)
-- **Linux:** `.AppImage`, `.deb`, `.rpm`
+- **Windows:** `.msi` installer, `.exe` setup (x86_64 & ARM64)
+- **macOS:** `.dmg` (Universal Binary & ARM64)
+- **Linux:** `.AppImage`, `.deb`, `.rpm` (x86_64 & ARM64)
 - **Android:** `.apk` (Native Android App with `VpnService`), `.aab`
 
 ## Desktop & Mobile GUI
@@ -48,10 +48,6 @@ cargo test --manifest-path aether/Cargo.toml --lib
 # Build the desktop GUI application
 cargo tauri build --manifest-path aether-gui/src-tauri/Cargo.toml
 ```
-
-## Roadmap & Remaining Tasks
-
-- [TODO.md](TODO.md) — Pending tasks, release recipes, and platform roadmap
 
 ## Credits & License
 
