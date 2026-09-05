@@ -13,8 +13,8 @@ android {
         minSdk = 26
         targetSdk = 34
         // Tracks the core: 1.9.0 -> 10900xx. Bump with releases.
-        versionCode = 1000004
-        versionName = "1.0.4"
+        versionCode = 1000005
+        versionName = "1.0.5"
     }
 
     buildTypes {
